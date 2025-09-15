@@ -238,23 +238,38 @@ probeEvEpochTime = function(self, ev)
 end
 
 function Bookeen:initEventAdjustHooks()
-    if self.touch_switch_xy then
-        self.input:registerEventAdjustHook(self.input.adjustTouchSwitchXY)
+    local input  = self.input
+    local screen = self.screen
+
+    local function has(fn) return type(input[fn]) == "function" end
+
+    if self.touch_switch_xy and self.touch_mirrored_x and has("adjustTouchSwitchAxesAndMirrorX") then
+        input:registerEventAdjustHook(input.adjustTouchSwitchAxesAndMirrorX, screen:getWidth())
+    else
+        if self.touch_switch_xy and has("adjustABS_SwitchXY") then
+            input:registerEventAdjustHook(function(this, ev)
+                if ev.type == require("ffi").C.EV_ABS then
+                    this:adjustABS_SwitchXY(ev)
+                end
+            end)
+        end
+        if self.touch_mirrored_x and has("adjustABS_MirrorX") then
+            input:registerEventAdjustHook(function(this, ev, max_x)
+                if ev.type == require("ffi").C.EV_ABS then
+                    this:adjustABS_MirrorX(ev, max_x)
+                end
+            end, screen:getWidth())
+        end
     end
-    if self.touch_mirrored_x then
-        self.input:registerEventAdjustHook(
-            self.input.adjustTouchMirrorX,
-            self.screen:getWidth()
-        )
-    end
+
     if self.touch_probe_ev_epoch_time then
-        self.input:registerEventAdjustHook(function(_, ev)
+        input:registerEventAdjustHook(function(_, ev)
             probeEvEpochTime(_, ev)
         end)
     end
 
-    if self.touch_legacy then
-        self.input.handleTouchEv = self.input.handleTouchEvLegacy
+    if self.touch_legacy and has("handleTouchEvLegacy") then
+        input.handleTouchEv = input.handleTouchEvLegacy
     end
 end
 
