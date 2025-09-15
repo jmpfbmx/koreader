@@ -149,7 +149,7 @@ TARGET:
     remarkable
     remarkable-aarch64
     sony-prstux
-    koobeen
+    bookeen
     ubuntu-touch
     win32
 "
@@ -183,7 +183,7 @@ function setup_target() {
         remarkable) ;;
         remarkable-aarch64) ;;
         sony-prstux) ;;
-        koobeen) ;;
+        bookeen) ;;
         ubuntu-touch) ;;
         # Invalid.
         *)
