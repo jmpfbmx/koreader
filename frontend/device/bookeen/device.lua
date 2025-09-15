@@ -218,21 +218,39 @@ function Bookeen:initNetworkManager(NetworkMgr)
 
 end
 
+local function to_sec(t)
+    if type(t) == "number" then return t end
+    if type(t) == "table"  then return t.sec or t.tv_sec or t[1] end
+end
+
+local function to_time_table(t)
+    if type(t) == "number" then
+        return { sec = t, usec = 0 }
+    elseif type(t) == "table" then
+        return {
+            sec  = t.sec  or t.tv_sec  or t[1] or 0,
+            usec = t.usec or t.tv_usec or t[2] or 0,
+        }
+    else
+        return { sec = 0, usec = 0 }
+    end
+end
 
 local probeEvEpochTime
--- this function will update itself after the first touch event
 probeEvEpochTime = function(self, ev)
-    local now = Time:now()
-    -- This check should work as long as main UI loop is not blocked for more
-    -- than 10 minute before handling the first touch event.
-    if ev.time.sec <= now.sec - 600 then
-        -- time is seconds since boot, force it to epoch
+    local now     = Time:now()
+    local now_sec = to_sec(now)
+    local ev_sec  = to_sec(ev.time)
+
+    -- If the first touch event looks like "seconds since boot" (older than 10 min),
+    -- switch to epoch time and normalize all subsequent events.
+    if now_sec and ev_sec and ev_sec <= (now_sec - 600) then
         probeEvEpochTime = function(_, _ev)
-            _ev.time = Time:now()
+            _ev.time = to_time_table(Time:now())
         end
-        ev.time = now
+        ev.time = to_time_table(now)
     else
-        -- time is already epoch time, no need to do anything
+        -- Already epoch (or we can't tell) -> stop probing.
         probeEvEpochTime = function(_, _) end
     end
 end
