@@ -91,7 +91,7 @@ local function getSerial()
     return serial
 end
 
-local Bookeen = Generic:new{
+local Bookeen = Generic:extend{
     model = "Bookeen",
     isBookeen = yes,
     hasKeys = yes,
@@ -100,6 +100,7 @@ local Bookeen = Generic:new{
     canReboot = yes,
     canPowerOff = yes,
     canHWInvert = no,
+    canUseCBB = no, -- 4bpp
     isTouchDevice = yes,
     isAlwaysPortrait = yes,
     hasMultitouch = yes,
@@ -111,6 +112,25 @@ local Bookeen = Generic:new{
     serial = getSerial(),
     just_toggled_frontlight = 0
 }
+
+-- Make sure the C BB cannot be used on devices with a 4bpp fb
+function Bookeen:blacklistCBB()
+    local ffi = require("ffi")
+    local dummy = require("ffi/posix_h")
+    local C = ffi.C
+
+    -- As well as on those than can't do HW inversion, as otherwise NightMode would be ineffective.
+    if not self:canUseCBB() or not self:canHWInvert() then
+        logger.info("Blacklisting the C BB on this device")
+        if ffi.os == "Windows" then
+            C._putenv("KO_NO_CBB=true")
+        else
+            C.setenv("KO_NO_CBB", "true", 1)
+        end
+        -- Enforce the global setting, too, so the Dev menu is accurate...
+        G_reader_settings:saveSetting("dev_no_c_blitter", true)
+    end
+end
 
 function Bookeen:getReseller()
     return self.serial:sub(1, 2)
@@ -239,6 +259,7 @@ function Bookeen:initEventAdjustHooks()
 end
 
 function Bookeen:init()
+    self:blacklistCBB()
     self.screen = require("ffi/framebuffer_mxcfb"):new{device = self, debug = logger.dbg}
     self.powerd = require("device/bookeen/powerd"):new{device = self}
     self.input = require("device/input"):new{
@@ -279,19 +300,19 @@ function Bookeen:init()
         end
     end
 
-    self.input.open("/dev/input/event0") -- Face buttons
-    self.input.open("/dev/input/event1") -- Power button
-    self.input.open("/dev/input/event2") -- Touch screen
+    self.input:open("/dev/input/event0") -- Face buttons
+    self.input:open("/dev/input/event1") -- Power button
+    self.input:open("/dev/input/event2") -- Touch screen
 
     if self:getDeviceGeneration() ~= BOOKEEN_GENERATION_MUSE_OCEAN then
-        self.input.open("/dev/input/event3") -- Accelerometer
+        self.input:open("/dev/input/event3") -- Accelerometer
     end
 
     self.input.handleTouchEv = self.input.handleBookeenTouchEvent
     self:initEventAdjustHooks()
     -- self.input.open("fake_events")  -- no free slots :(
 
-    local rotation_mode = self.screen.ORIENTATION_PORTRAIT
+    local rotation_mode = self.screen.DEVICE_ROTATED_COUNTER_CLOCKWISE -- DEVICE_ROTATED_UPRIGHT maps to landscape orientation on Bookeen devices
     self.screen.native_rotation_mode = rotation_mode
     self.screen.cur_rotation_mode = rotation_mode
 
