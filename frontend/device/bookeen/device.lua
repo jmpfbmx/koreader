@@ -1,7 +1,7 @@
 local Generic = require("device/generic/device") -- <= look at this file!
 local Event = require("ui/event")
 local WakeupMgr = require("device/wakeupmgr")
-local TimeVal = require("ui/timeval")
+local Time = require("ui/time")
 local logger = require("logger")
 
 local function yes() return true end
@@ -202,13 +202,13 @@ end
 local probeEvEpochTime
 -- this function will update itself after the first touch event
 probeEvEpochTime = function(self, ev)
-    local now = TimeVal:now()
+    local now = Time:now()
     -- This check should work as long as main UI loop is not blocked for more
     -- than 10 minute before handling the first touch event.
     if ev.time.sec <= now.sec - 600 then
         -- time is seconds since boot, force it to epoch
         probeEvEpochTime = function(_, _ev)
-            _ev.time = TimeVal:now()
+            _ev.time = Time:now()
         end
         ev.time = now
     else
