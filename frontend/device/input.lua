@@ -1145,37 +1145,34 @@ function Input:handleBookeenTouchEvent(ev)
     -- Pretty much the same as handleTouchEvPhoenix, but notice the
     -- fix for ABS_MT_TRACKING_ID. On bookeen this starts at 1 for some
     -- reason.
-    if ev.type == EV_ABS then
-        if #self.MTSlots == 0 then
-            table.insert(self.MTSlots, self:getMtSlot(self.cur_slot))
-        end
-        if ev.code == ABS_MT_TRACKING_ID then
+    if ev.type == C.EV_ABS then
+        if ev.code == C.ABS_MT_TRACKING_ID then
             if ev.value > 0 then
                 ev.value = ev.value - 1
             end
-            self:addSlotIfChanged(ev.value)
+            self:setupSlotData(ev.value)
             self:setCurrentMtSlot("id", ev.value)
-        elseif ev.code == ABS_MT_TOUCH_MAJOR and ev.value == 0 then
+        elseif ev.code == C.ABS_MT_TOUCH_MAJOR and ev.value == 0 then
             self:setCurrentMtSlot("id", -1)
-        elseif ev.code == ABS_MT_POSITION_X then
+        elseif ev.code == C.ABS_MT_POSITION_X then
             self:setCurrentMtSlot("x", ev.value)
-        elseif ev.code == ABS_MT_POSITION_Y then
+        elseif ev.code == C.ABS_MT_POSITION_Y then
             self:setCurrentMtSlot("y", ev.value)
         end
-    elseif ev.type == EV_SYN then
-        if ev.code == SYN_REPORT then
-            for _, MTSlot in pairs(self.MTSlots) do
-                self:setMtSlot(MTSlot.slot, "timev", TimeVal:new(ev.time))
+    elseif ev.type == C.EV_SYN then
+        if ev.code == C.SYN_REPORT then
+            for _, MTSlot in ipairs(self.MTSlots) do
+                self:setMtSlot(MTSlot.slot, "timev", time.timeval(ev.time))
             end
             -- feed ev in all slots to state machine
-            local touch_ges = self.gesture_detector:feedEvent(self.MTSlots)
-            self.MTSlots = {}
-            if touch_ges then
+            local touch_gestures = self.gesture_detector:feedEvent(self.MTSlots)
+            self:newFrame()
+            local ges_evs = {}
+            for _, touch_ges in ipairs(touch_gestures) do
                 self:gestureAdjustHook(touch_ges)
-                return Event:new("Gesture",
-                    self.gesture_detector:adjustGesCoordinate(touch_ges)
-                )
+                table.insert(ges_evs, Event:new("Gesture", self.gesture_detector:adjustGesCoordinate(touch_ges)))
             end
+            return ges_evs
         end
     end
 end
