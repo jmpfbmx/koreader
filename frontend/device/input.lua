@@ -1146,31 +1146,57 @@ function Input:handleBookeenTouchEvent(ev)
     -- fix for ABS_MT_TRACKING_ID. On bookeen this starts at 1 for some
     -- reason.
     if ev.type == C.EV_ABS then
-        if ev.code == C.ABS_MT_TRACKING_ID then
-            if ev.value > 0 then
-                ev.value = ev.value - 1
-            end
+        if ev.code == C.ABS_MT_SLOT then
+            -- Ensure backing storage for this slot & make it current
             self:setupSlotData(ev.value)
-            self:setCurrentMtSlot("id", ev.value)
-        elseif ev.code == C.ABS_MT_TOUCH_MAJOR and ev.value == 0 then
-            self:setCurrentMtSlot("id", -1)
-        elseif ev.code == C.ABS_MT_POSITION_X then
-            self:setCurrentMtSlot("x", ev.value)
-        elseif ev.code == C.ABS_MT_POSITION_Y then
-            self:setCurrentMtSlot("y", ev.value)
+        elseif ev.code == C.ABS_MT_TRACKING_ID then
+            -- Normalize: many firmwares start IDs at 1; KO expects 0-based.
+            local id = ev.value
+            if id and id > 0 then id = id - 1 end
+            -- Use the *Checked* helper so the current slot exists even if SLOT was omitted
+            self:setCurrentMtSlotChecked("id", id)
+        elseif ev.code == C.ABS_MT_TOUCH_MAJOR then
+            -- Lift is signaled by TOUCH_MAJOR == 0
+            if ev.value == 0 then
+                self:setCurrentMtSlot("id", -1)
+            else
+                -- Down/move: ensure we actually *have* an id
+                local id = self:getCurrentMtSlotData("id")
+                if id == nil or id == -1 then
+                    self:setCurrentMtSlot("id", 0)
+                end
+            end
+        elseif ev.code == C.ABS_MT_POSITION_X or ev.code == C.ABS_X then
+            self:setCurrentMtSlotChecked("x", ev.value)
+            -- If coords arrive before ID, synthesize a sane one
+            local id = self:getCurrentMtSlotData("id")
+            if id == nil or id == -1 then
+                self:setCurrentMtSlot("id", 0)
+            end
+        elseif ev.code == C.ABS_MT_POSITION_Y or ev.code == C.ABS_Y then
+            self:setCurrentMtSlotChecked("y", ev.value)
+            local id = self:getCurrentMtSlotData("id")
+            if id == nil or id == -1 then
+                self:setCurrentMtSlot("id", 0)
+            end
         end
     elseif ev.type == C.EV_SYN then
         if ev.code == C.SYN_REPORT then
             for _, MTSlot in ipairs(self.MTSlots) do
                 self:setMtSlot(MTSlot.slot, "timev", time.timeval(ev.time))
             end
-            -- feed ev in all slots to state machine
+            -- Feed to gesture detector
             local touch_gestures = self.gesture_detector:feedEvent(self.MTSlots)
+            -- Prepare for next frame
             self:newFrame()
+            -- Return all gesture events
             local ges_evs = {}
             for _, touch_ges in ipairs(touch_gestures) do
                 self:gestureAdjustHook(touch_ges)
-                table.insert(ges_evs, Event:new("Gesture", self.gesture_detector:adjustGesCoordinate(touch_ges)))
+                ges_evs[#ges_evs+1] = Event:new(
+                    "Gesture",
+                    self.gesture_detector:adjustGesCoordinate(touch_ges)
+                )
             end
             return ges_evs
         end

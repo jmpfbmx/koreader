@@ -225,7 +225,7 @@ function Bookeen:initEventAdjustHooks()
     if self.touch_switch_xy and self.touch_mirrored_x then
         self.input:registerEventAdjustHook(
             self.input.adjustTouchSwitchAxesAndMirrorX,
-            self.screen:getHeight()
+            self.screen:getWidth() - 1
         )
     end
 
