@@ -4,6 +4,9 @@ local WakeupMgr = require("device/wakeupmgr")
 local Time = require("ui/time")
 local logger = require("logger")
 
+local ffi = require("ffi")
+local C = ffi.C
+
 local function yes() return true end
 local function no() return false end
 
@@ -100,37 +103,37 @@ local Bookeen = Generic:extend{
     canReboot = yes,
     canPowerOff = yes,
     canHWInvert = no,
-    canUseCBB = no, -- 4bpp
+--    canUseCBB = no, -- 4bpp
     isTouchDevice = yes,
     isAlwaysPortrait = yes,
     hasMultitouch = yes,
     hasFrontlight = yes,
-    touch_probe_ev_epoch_time = yes,
     touch_switch_xy = yes,
     touch_mirrored_x = yes,
     display_dpi = 212,
     serial = getSerial(),
-    just_toggled_frontlight = 0
+    just_toggled_frontlight = 0,
+    home_dir = "/mnt/fat",
 }
 
 -- Make sure the C BB cannot be used on devices with a 4bpp fb
-function Bookeen:blacklistCBB()
-    local ffi = require("ffi")
-    local dummy = require("ffi/posix_h")
-    local C = ffi.C
-
+--function Bookeen:blacklistCBB()
+--    local ffi = require("ffi")
+--    local dummy = require("ffi/posix_h")
+--    local C = ffi.C
+--
     -- As well as on those than can't do HW inversion, as otherwise NightMode would be ineffective.
-    if not self:canUseCBB() or not self:canHWInvert() then
-        logger.info("Blacklisting the C BB on this device")
-        if ffi.os == "Windows" then
-            C._putenv("KO_NO_CBB=true")
-        else
-            C.setenv("KO_NO_CBB", "true", 1)
-        end
+--    if not self:canUseCBB() or not self:canHWInvert() then
+--        logger.info("Blacklisting the C BB on this device")
+--        if ffi.os == "Windows" then
+--            C._putenv("KO_NO_CBB=true")
+--        else
+--            C.setenv("KO_NO_CBB", "true", 1)
+--        end
         -- Enforce the global setting, too, so the Dev menu is accurate...
-        G_reader_settings:saveSetting("dev_no_c_blitter", true)
-    end
-end
+--        G_reader_settings:saveSetting("dev_no_c_blitter", true)
+--    end
+--end
 
 function Bookeen:getReseller()
     return self.serial:sub(1, 2)
@@ -218,82 +221,23 @@ function Bookeen:initNetworkManager(NetworkMgr)
 
 end
 
-local function to_sec(t)
-    if type(t) == "number" then return t end
-    if type(t) == "table"  then return t.sec or t.tv_sec or t[1] end
-end
-
-local function to_time_table(t)
-    if type(t) == "number" then
-        return { sec = t, usec = 0 }
-    elseif type(t) == "table" then
-        return {
-            sec  = t.sec  or t.tv_sec  or t[1] or 0,
-            usec = t.usec or t.tv_usec or t[2] or 0,
-        }
-    else
-        return { sec = 0, usec = 0 }
-    end
-end
-
-local probeEvEpochTime
-probeEvEpochTime = function(self, ev)
-    local now     = Time:now()
-    local now_sec = to_sec(now)
-    local ev_sec  = to_sec(ev.time)
-
-    -- If the first touch event looks like "seconds since boot" (older than 10 min),
-    -- switch to epoch time and normalize all subsequent events.
-    if now_sec and ev_sec and ev_sec <= (now_sec - 600) then
-        probeEvEpochTime = function(_, _ev)
-            _ev.time = to_time_table(Time:now())
-        end
-        ev.time = to_time_table(now)
-    else
-        -- Already epoch (or we can't tell) -> stop probing.
-        probeEvEpochTime = function(_, _) end
-    end
-end
-
 function Bookeen:initEventAdjustHooks()
-    local input  = self.input
-    local screen = self.screen
-
-    local function has(fn) return type(input[fn]) == "function" end
-
-    if self.touch_switch_xy and self.touch_mirrored_x and has("adjustTouchSwitchAxesAndMirrorX") then
-        input:registerEventAdjustHook(input.adjustTouchSwitchAxesAndMirrorX, screen:getWidth())
-    else
-        if self.touch_switch_xy and has("adjustABS_SwitchXY") then
-            input:registerEventAdjustHook(function(this, ev)
-                if ev.type == require("ffi").C.EV_ABS then
-                    this:adjustABS_SwitchXY(ev)
-                end
-            end)
-        end
-        if self.touch_mirrored_x and has("adjustABS_MirrorX") then
-            input:registerEventAdjustHook(function(this, ev, max_x)
-                if ev.type == require("ffi").C.EV_ABS then
-                    this:adjustABS_MirrorX(ev, max_x)
-                end
-            end, screen:getWidth())
-        end
+    if self.touch_switch_xy and self.touch_mirrored_x then
+        self.input:registerEventAdjustHook(
+            self.input.adjustTouchSwitchAxesAndMirrorX,
+            self.screen:getHeight()
+        )
     end
 
-    if self.touch_probe_ev_epoch_time then
-        input:registerEventAdjustHook(function(_, ev)
-            probeEvEpochTime(_, ev)
-        end)
-    end
-
-    if self.touch_legacy and has("handleTouchEvLegacy") then
-        input.handleTouchEv = input.handleTouchEvLegacy
+    if self.touch_legacy then
+        self.input.handleTouchEv = self.input.handleTouchEvLegacy
     end
 end
 
 function Bookeen:init()
-    self:blacklistCBB()
-    self.screen = require("ffi/framebuffer_mxcfb"):new{device = self, debug = logger.dbg}
+    logger:setLevel(1)
+--    self:blacklistCBB()
+    self.screen = require("ffi/framebuffer_mxcfb"):new{device = self, debug = logger.dbg, is_always_portrait = self.isAlwaysPortrait()}
     self.powerd = require("device/bookeen/powerd"):new{device = self}
     self.input = require("device/input"):new{
         device = self,
@@ -344,10 +288,6 @@ function Bookeen:init()
     self.input.handleTouchEv = self.input.handleBookeenTouchEvent
     self:initEventAdjustHooks()
     -- self.input.open("fake_events")  -- no free slots :(
-
-    local rotation_mode = self.screen.DEVICE_ROTATED_COUNTER_CLOCKWISE -- DEVICE_ROTATED_UPRIGHT maps to landscape orientation on Bookeen devices
-    self.screen.native_rotation_mode = rotation_mode
-    self.screen.cur_rotation_mode = rotation_mode
 
     Generic.init(self)
 end
